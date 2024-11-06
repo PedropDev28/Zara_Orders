@@ -1,14 +1,14 @@
 {
     "builds": [
         {
-            "src": "zara_orders/wsgi.py",
+            "src": "zara_orders/asgi.py",
             "use": "@vercel/python"
         }
     ],
     "routes": [
         {
             "src": "/(.*)",
-            "dest": "zara_orders/wsgi.py"
+            "dest": "zara_orders/asgi.py"
         }
     ]
 }
