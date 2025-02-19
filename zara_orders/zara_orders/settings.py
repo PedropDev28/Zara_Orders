@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-)j8&pfx==-u27k(s#0*ar-rzn75zyfut26f(r*4g&=v+^ts!jy
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'localhost:4200', 'https://02v9jt74-8000.uks1.devtunnels.ms/']
 
 
 # Application definition
@@ -40,12 +40,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'corsheaders',
     'drf_yasg',
     'CRUD_orders',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -56,6 +59,9 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'zara_orders.urls'
+
+CORS_ALLOW_ALL_ORIGINS = True
+
 
 TEMPLATES = [
     {
@@ -134,6 +140,6 @@ env = environ.Env()
 environ.Env.read_env()
 MONGODB_NAME = env("MONGODB_NAME")
 MONGODB_HOST = env("MONGODB_HOST")
-MONGODB_PORT = int(env("MONGODB_PORT"))  # Debe ser un número
+MONGODB_PORT = int(env("MONGODB_PORT"))
 MONGODB_USER = env("MONGODB_USER")
 MONGODB_PASSWORD = env("MONGODB_PASSWORD")

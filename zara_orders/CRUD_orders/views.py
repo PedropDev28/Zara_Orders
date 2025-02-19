@@ -1,57 +1,45 @@
+import re
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.http import JsonResponse
-from rest_framework.views import APIView  # Cambia a APIView
+from pymongo import ReturnDocument
+from rest_framework.views import APIView 
 from .utils import get_db_handle
 from bson import ObjectId
+import logging
 
+logger = logging.getLogger(__name__)
 
-# GET colors
-# GET brands
-# GET availability
-# GET conditions
-# GET attributes (Todos los atributos que ya se hayan insertado)
-# GET documents (Primeros 10) (Si nos calentamos lo hacemos con paginación)
-# GET documents by (filtro/s) (Sencillos, sin condicionales)
-
-# DELETE documento by id
-# UPDATE documento by id
-# POST documento/s
-
-#   {
-#     "_id": "6723b4b90c80c85647647b94",
-#     "url": "https://www.zara.com/us/en/satin-effect-corset-bodysuit-p00219805.html",
-#     "language": "en-US",
-#     "name": "SATIN EFFECT CORSET BODYSUIT",
-#     "sku": "128666521-966-2",
-#     "mpn": "128666521-966-2",
-#     "brand": "ZARA",
-#     "description": "Bodysuit with sweetheart neckline and adjustable spaghetti straps. Bottom snap button closure.",
-#     "price": 30,
-#     "currency": "USD",
-#     "availability": "InStock",
-#     "condition": "NewCondition",
-#     "images": "https://static.zara.net/stdstatic/1.234.0-b.45/images/transparent-background.png~https://static.zara.net/stdstatic/1.234.0-b.45/images/transparent-background.png~https://static.zara.net/stdstatic/1.234.0-b.45/images/transparent-background.png~https://static.zara.net/stdstatic/1.234.0-b.45/images/transparent-background.png~https://static.zara.net/stdstatic/1.234.0-b.45/images/transparent-background.png~https://static.zara.net/stdstatic/1.234.0-b.45/images/transparent-background.png~https://static.zara.net/stdstatic/1.234.0-b.45/images/transparent-background.png",
-#     "color": "Color Pale pink | 0219/805",
-#     "size_list": "S/M/L",
-#     "scraped_at": "2021-10-13 01:21:25"
-#   },
-
-# Leer todos los colores disponibles que hay en todas las ordenes teniendo en cuenta la orden arriba comentada
 class ReadColorsView(APIView):
-    @swagger_auto_schema(
-        operation_description="Leer todos los colores disponibles",
-        responses={200: "Successful Operation"}
-    )
     def get(self, request):
+        logger.info("Connecting to database")
         db_handle, client = get_db_handle()
         orders_collection = db_handle['orders']
 
-        # Extrae colores únicos de la colección de órdenes
-        colors = orders_collection.distinct("color")
-        client.close()
+        try:
+            # Extrae todos los valores únicos de "color" en MongoDB
+            raw_colors = orders_collection.distinct("color")
+            logger.info(f"Fetched colors: {raw_colors}")
 
-        return JsonResponse(colors, safe=False)
+            # Filtra solo el nombre del color, eliminando duplicados y valores no válidos
+            unique_colors = set()
+            for color in raw_colors:
+                # Toma solo la parte antes de "|", y elimina espacios adicionales
+                base_color = color.split('|')[0].strip()
+                
+                # Filtra valores que parecen nombres de colores, descartando números
+                if re.match(r'^[A-Za-z\s]+$', base_color):  # Solo letras y espacios
+                    unique_colors.add(base_color)
+
+            colors_list = list(unique_colors)
+            logger.info(f"Processed colors: {colors_list}")
+        except Exception as e:
+            logger.error(f"Error fetching colors: {e}")
+            return JsonResponse({"error": "Error fetching colors"}, status=500)
+        finally:
+            client.close()
+
+        return JsonResponse(colors_list, safe=False)
 
 
 class ReadBrandsView(APIView):
@@ -148,8 +136,8 @@ class ReadDocumentsByFilterView(APIView):
             openapi.Parameter('color', openapi.IN_QUERY, description="Color del producto", type=openapi.TYPE_STRING),
             openapi.Parameter('brand', openapi.IN_QUERY, description="Marca del producto", type=openapi.TYPE_STRING),
             openapi.Parameter('availability', openapi.IN_QUERY, description="Disponibilidad del producto", type=openapi.TYPE_STRING),
-            openapi.Parameter('min_price', openapi.IN_QUERY, description="Precio mínimo", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('max_price', openapi.IN_QUERY, description="Precio máximo", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('price', openapi.IN_QUERY, description="Precio mínimo", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('condition', openapi.IN_QUERY, description="Condición", type=openapi.TYPE_NUMBER),
             # Añade otros parámetros según los campos que quieras filtrar
         ]
     )
@@ -174,19 +162,18 @@ class ReadDocumentsByFilterView(APIView):
         availability = request.query_params.get('availability')
         if availability:
             filter_conditions['availability'] = availability
-
-        # Filtro por precio mínimo y máximo
-        min_price = request.query_params.get('min_price')
-        max_price = request.query_params.get('max_price')
-        if min_price and max_price:
-            filter_conditions['price'] = {"$gte": float(min_price), "$lte": float(max_price)}
-        elif min_price:
-            filter_conditions['price'] = {"$gte": float(min_price)}
-        elif max_price:
-            filter_conditions['price'] = {"$lte": float(max_price)}
+        
+        condition = request.query_params.get('condition')
+        if condition:
+            filter_conditions['condition'] = condition
+            
+        min_price = request.query_params.get('price')
+        if min_price:
+            filter_conditions['price'] = {"$lte": float(min_price)}
+        
 
         # Obtén documentos según las condiciones de filtro dinámicas
-        documents = list(orders_collection.find(filter_conditions).limit(10))
+        documents = list(orders_collection.find(filter_conditions))
         client.close()
 
         for document in documents:
@@ -194,13 +181,11 @@ class ReadDocumentsByFilterView(APIView):
 
         return JsonResponse(documents, safe=False)
 
-
-
 class DeleteDocumentView(APIView):
     @swagger_auto_schema(
         operation_description="Eliminar un documento por ID",
         responses={200: "Document deleted successfully", 404: "Document not found"},
-        manual_parameters=[
+        manual_parameters=[ 
             openapi.Parameter('document_id', openapi.IN_PATH, description="ID del documento", type=openapi.TYPE_STRING)
         ]
     )
@@ -208,15 +193,15 @@ class DeleteDocumentView(APIView):
         db_handle, client = get_db_handle()
         orders_collection = db_handle['orders']
 
-        result = orders_collection.delete_one({"_id": ObjectId(document_id)})
+        # Eliminar el documento utilizando el campo 'id' personalizado
+        result = orders_collection.delete_one({"id": int(document_id)})  
+
         client.close()
 
         if result.deleted_count > 0:
             return JsonResponse({'status': 'Document deleted successfully'})
         else:
             return JsonResponse({'error': 'Document not found'}, status=404)
-
-
 
 class TestDatabaseConnectionView(APIView):
     @swagger_auto_schema(
@@ -264,11 +249,12 @@ class UpdateDocumentView(APIView):
                 'color': openapi.Schema(type=openapi.TYPE_STRING, description="Color"),
                 'size_list': openapi.Schema(type=openapi.TYPE_STRING, description="Tamaño disponible"),
                 'scraped_at': openapi.Schema(type=openapi.TYPE_STRING, description="Fecha y hora de scraping"),
+                'id': openapi.Schema(type=openapi.TYPE_STRING, description="ID del documento")
             },
             description="Campos a actualizar en el documento"
         ),
         responses={200: "Document updated successfully", 404: "Document not found"},
-        manual_parameters=[
+        manual_parameters=[ 
             openapi.Parameter('document_id', openapi.IN_PATH, description="ID del documento", type=openapi.TYPE_STRING)
         ]
     )
@@ -279,17 +265,16 @@ class UpdateDocumentView(APIView):
         # Recoge el JSON con los datos de actualización desde el frontend
         update_fields = request.data
 
-        # Actualiza el documento con los campos proporcionados
-        result = orders_collection.update_one({"_id": ObjectId(document_id)}, {"$set": update_fields})
+        # Actualiza el documento usando el campo 'id' en lugar de '_id'
+        result = orders_collection.update_one({"id": int(document_id)}, {"$set": update_fields})  # Usamos 'id' personalizado
+
         client.close()
 
         if result.modified_count > 0:
-            return JsonResponse({'status': 'Document updated successfully'})
+            return JsonResponse({'status': True})
         else:
-            return JsonResponse({'error': 'Document not found or no changes made'}, status=404)
+            return JsonResponse({'error': False}, status=404)
 
-        
-        
 class CreateDocumentView(APIView):
     @swagger_auto_schema(
         operation_description="Crear un documento",
@@ -307,39 +292,64 @@ class CreateDocumentView(APIView):
                 'currency': openapi.Schema(type=openapi.TYPE_STRING, description="Moneda"),
                 'availability': openapi.Schema(type=openapi.TYPE_STRING, description="Disponibilidad"),
                 'condition': openapi.Schema(type=openapi.TYPE_STRING, description="Condición"),
-                'images': openapi.Schema(type=openapi.TYPE_STRING, description="URLs de las imágenes"),
                 'color': openapi.Schema(type=openapi.TYPE_STRING, description="Color"),
                 'size_list': openapi.Schema(type=openapi.TYPE_STRING, description="Tamaño disponible"),
                 'scraped_at': openapi.Schema(type=openapi.TYPE_STRING, description="Fecha y hora de scraping"),
             },
             required=['url', 'language', 'name', 'sku', 'mpn', 'brand', 'description', 'price', 'currency',
-                      'availability', 'condition', 'images', 'color', 'size_list', 'scraped_at']
+                      'availability', 'condition', 'images', 'color', 'size_list', 'scraped_at'],
         ),
-        responses={200: "Document created successfully"}
+        responses={200: "true", 500: "False"}
     )
     def post(self, request):
         db_handle, client = get_db_handle()
         orders_collection = db_handle['orders']
+        counters_collection = db_handle['counters']  # La colección para manejar el contador de IDs
 
-        # Recoge el JSON con los atributos desde el frontend
-        document = request.data
+        # Obtén el siguiente ID disponible (para manejar las inserciones en serie)
+        counter = counters_collection.find_one_and_update(
+            {"_id": "orders_id"},  # Identificador único para la secuencia
+            {"$inc": {"sequence_value": 1}},  # Incrementa el valor del contador
+            return_document=ReturnDocument.AFTER  # Devuelve el documento actualizado
+        )
 
-        # Crea el documento en MongoDB
-        result = orders_collection.insert_one(document)
+        if not counter:
+            # Si no existe un documento con _id "orders_id", creamos uno
+            counters_collection.insert_one({"_id": "orders_id", "sequence_value": 1})
+            counter = {"sequence_value": 1}
+
+        # Verifica si request.data es una lista o un solo objeto
+        orders = request.data if isinstance(request.data, list) else [request.data]
+        inserted_ids = []  # Para almacenar los IDs de las órdenes insertadas
+
+        for order in orders:
+            order['id'] = counter['sequence_value']  # Asigna el siguiente ID disponible
+
+            # Inserta la orden en la colección de órdenes
+            result = orders_collection.insert_one(order)
+            
+            if result.inserted_id:
+                inserted_ids.append(str(result.inserted_id))  # Convertir ObjectId a string
+                counter['sequence_value'] += 1  # Incrementa el ID para la siguiente orden
+
+        # Actualiza el contador en la colección de counters
+        counters_collection.update_one(
+            {"_id": "orders_id"},
+            {"$set": {"sequence_value": counter['sequence_value']}}
+        )
+
         client.close()
 
-        if result.inserted_id:
-            return JsonResponse({'status': 'Document created successfully'})
+        if inserted_ids:
+            return JsonResponse({'status': True, 'inserted_ids': inserted_ids})
         else:
-            return JsonResponse({'error': 'Document creation failed'}, status=500)
-
-        
+            return JsonResponse({'error': False}, status=500)  
         
 class ReadDocumentView(APIView):
     @swagger_auto_schema(
         operation_description="Leer un documento por ID",
         responses={200: "Successful Operation", 404: "Document not found"},
-        manual_parameters=[
+        manual_parameters=[ 
             openapi.Parameter('document_id', openapi.IN_PATH, description="ID del documento", type=openapi.TYPE_STRING)
         ]
     )
@@ -347,12 +357,15 @@ class ReadDocumentView(APIView):
         db_handle, client = get_db_handle()
         orders_collection = db_handle['orders']
 
-        # Lee un documento por ID
-        document = orders_collection.find_one({"_id": ObjectId(document_id)})
+        # Lee un documento usando el campo 'id' en lugar de ObjectId
+        document = orders_collection.find_one({"id": int(document_id)})
+
         client.close()
 
         if document:
-            document['_id'] = str(document['_id'])
+            # Convierte todos los ObjectId a str
+            document = {key: str(value) if isinstance(value, ObjectId) else value for key, value in document.items()}
+
             return JsonResponse(document, safe=False)
         else:
             return JsonResponse({'error': 'Document not found'}, status=404)

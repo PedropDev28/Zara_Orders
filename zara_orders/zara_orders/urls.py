@@ -20,7 +20,7 @@ from django.urls import re_path
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-from CRUD_orders.views import ReadAttributesView, ReadAvailabilityView, ReadBrandsView, ReadColorsView, ReadConditionsView, ReadDocumentsView, ReadDocumentsByFilterView, TestDatabaseConnectionView
+from CRUD_orders.views import ReadAttributesView, UpdateDocumentView, CreateDocumentView, DeleteDocumentView, ReadDocumentView, ReadAvailabilityView, ReadBrandsView, ReadColorsView, ReadConditionsView, ReadDocumentsView, ReadDocumentsByFilterView, TestDatabaseConnectionView
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -42,8 +42,12 @@ urlpatterns = [
     path('read_colors/', ReadColorsView.as_view()),
     path('read_conditions/', ReadConditionsView.as_view()),
     path('read_documents/', ReadDocumentsView.as_view()),
-    path('filter', ReadDocumentsByFilterView.as_view()),
+    path('filter/', ReadDocumentsByFilterView.as_view()),
     path('test_database_connection/', TestDatabaseConnectionView.as_view()),
+    path('read_document/<int:document_id>/', ReadDocumentView.as_view()),
+    path('update_document/<int:document_id>/', UpdateDocumentView.as_view()),
+    path('create_document/', CreateDocumentView.as_view()),
+    path('delete_document/<int:document_id>/', DeleteDocumentView.as_view()),
     re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
